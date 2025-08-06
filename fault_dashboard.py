@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import uuid
 import re
 
 # Streamlit page configuration
@@ -99,8 +98,19 @@ if uploaded_file is not None:
     df['FAULT_TYPE'] = df['FAULT/OPERATION'].apply(classify_fault)
 
     # Feeder ratings (based on average downtime, lower is better)
+    def calculate_feeder_ratings(df_grouped):
+        if len(df_grouped) < 4 or df_grouped['DOWNTIME_HOURS'].nunique() < 4:
+            # Fallback: Assign 'Unknown' rating if insufficient data for quartiles
+            df_grouped['RATING'] = 'Unknown'
+        else:
+            try:
+                df_grouped['RATING'] = pd.qcut(df_grouped['DOWNTIME_HOURS'], q=4, labels=['Excellent', 'Good', 'Fair', 'Poor'], duplicates='drop')
+            except ValueError:
+                df_grouped['RATING'] = 'Unknown'
+        return df_grouped
+
     feeder_downtime = df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
-    feeder_downtime['RATING'] = pd.qcut(feeder_downtime['DOWNTIME_HOURS'], q=4, labels=['Excellent', 'Good', 'Fair', 'Poor'], duplicates='drop')
+    feeder_downtime = calculate_feeder_ratings(feeder_downtime)
 
     # Frequent tripping feeders (more than 2 trips in a month)
     feeder_trips = df['11kV FEEDER'].value_counts().reset_index()
@@ -184,11 +194,15 @@ if uploaded_file is not None:
     if month_filter != 'All':
         filtered_df = filtered_df[filtered_df['MONTH'] == month_filter]
 
+    # Check if filtered data is empty
+    if filtered_df.empty:
+        st.warning("No data matches the selected filters. Try different options.")
+
     # Update metrics and visuals based on filtered data
     fault_counts_filtered = filtered_df['FAULT_TYPE'].value_counts().reset_index()
     fault_counts_filtered.columns = ['Fault Type', 'Count']
     feeder_downtime_filtered = filtered_df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
-    feeder_downtime_filtered['RATING'] = pd.qcut(feeder_downtime_filtered['DOWNTIME_HOURS'], q=4, labels=['Excellent', 'Good', 'Fair', 'Poor'], duplicates='drop')
+    feeder_downtime_filtered = calculate_feeder_ratings(feeder_downtime_filtered)
     frequent_trippers_filtered = filtered_df['11kV FEEDER'].value_counts().reset_index()
     frequent_trippers_filtered.columns = ['11kV FEEDER', 'TRIP_COUNT']
     frequent_trippers_filtered = frequent_trippers_filtered[frequent_trippers_filtered['TRIP_COUNT'] > 2]
@@ -211,12 +225,12 @@ if uploaded_file is not None:
     with col1:
         st.metric("Total Faults", len(filtered_df))
     with col2:
-        st.metric("Total Energy Loss (MWh)", f"{filtered_df['ENERGY_LOSS_MWH'].sum():,.2f}")
+        st.metric("Total Energy Loss (MWh)", f"{filtered_df['ENERGY_LOSS_MWH'].sum():,}")
     with col3:
-        st.metric("Total Monetary Loss (M NGN)", f"{filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum():,.2f}")
+        st.metric("Total Monetary Loss (M NGN)", f"{filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum():,}")
 
     st.subheader("Total Downtime")
-    st.metric("Total Downtime (Hours)", round(filtered_df['DOWNTIME_HOURS'].sum(), 2))
+    st.metric("Total Downtime (Hours)", f"{filtered_df['DOWNTIME_HOURS'].sum():,.2f}")
 
     # Alerts for outliers
     if not clearance_outliers_filtered.empty:
@@ -265,8 +279,11 @@ if uploaded_file is not None:
     report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
     # Format numeric columns with commas for CSV
-    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].map('{:.2f}'.format)
-    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].map('{:.2f}'.format)
+    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
+    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
+    report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
+    report_df['CLEARANCE_TIME_HOURS'] = report_df['CLEARANCE_TIME_HOURS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
+    report_df['PRIORITY_SCORE'] = report_df['PRIORITY_SCORE'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
     csv = report_df.to_csv(index=False)
     st.download_button("Download CSV Report", csv, "fault_clearance_report.csv", "text/csv")
 
