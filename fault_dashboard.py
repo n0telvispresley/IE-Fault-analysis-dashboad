@@ -4,6 +4,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import re
+import locale
+
+# Set locale for comma formatting
+locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
 # Streamlit page configuration
 st.set_page_config(page_title="Ikeja Electric Fault Clearance Dashboard", layout="wide")
@@ -99,12 +103,14 @@ if uploaded_file is not None:
 
     # Feeder ratings (based on average downtime, lower is better)
     def calculate_feeder_ratings(df_grouped):
-        if len(df_grouped) < 4 or df_grouped['DOWNTIME_HOURS'].nunique() < 4:
-            # Fallback: Assign 'Unknown' rating if insufficient data for quartiles
+        if len(df_grouped) < 2 or df_grouped['DOWNTIME_HOURS'].nunique() < 2:
+            # Fallback: Assign 'Unknown' rating if insufficient data
             df_grouped['RATING'] = 'Unknown'
         else:
             try:
-                df_grouped['RATING'] = pd.qcut(df_grouped['DOWNTIME_HOURS'], q=4, labels=['Excellent', 'Good', 'Fair', 'Poor'], duplicates='drop')
+                # Use fewer bins if unique values are limited
+                n_bins = min(4, df_grouped['DOWNTIME_HOURS'].nunique())
+                df_grouped['RATING'] = pd.qcut(df_grouped['DOWNTIME_HOURS'], q=n_bins, labels=['Excellent', 'Good', 'Fair', 'Poor'][:n_bins], duplicates='drop')
             except ValueError:
                 df_grouped['RATING'] = 'Unknown'
         return df_grouped
@@ -197,6 +203,7 @@ if uploaded_file is not None:
     # Check if filtered data is empty
     if filtered_df.empty:
         st.warning("No data matches the selected filters. Try different options.")
+        st.stop()
 
     # Update metrics and visuals based on filtered data
     fault_counts_filtered = filtered_df['FAULT_TYPE'].value_counts().reset_index()
@@ -225,12 +232,12 @@ if uploaded_file is not None:
     with col1:
         st.metric("Total Faults", len(filtered_df))
     with col2:
-        st.metric("Total Energy Loss (MWh)", f"{filtered_df['ENERGY_LOSS_MWH'].sum():,}")
+        st.metric("Total Energy Loss (MWh)", locale.format_string("%d", filtered_df['ENERGY_LOSS_MWH'].sum(), grouping=True))
     with col3:
-        st.metric("Total Monetary Loss (M NGN)", f"{filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum():,}")
+        st.metric("Total Monetary Loss (M NGN)", locale.format_string("%.2f", filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum(), grouping=True))
 
     st.subheader("Total Downtime")
-    st.metric("Total Downtime (Hours)", f"{filtered_df['DOWNTIME_HOURS'].sum():,.2f}")
+    st.metric("Total Downtime (Hours)", locale.format_string("%.2f", filtered_df['DOWNTIME_HOURS'].sum(), grouping=True))
 
     # Alerts for outliers
     if not clearance_outliers_filtered.empty:
@@ -279,11 +286,11 @@ if uploaded_file is not None:
     report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
     # Format numeric columns with commas for CSV
-    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
-    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
-    report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
-    report_df['CLEARANCE_TIME_HOURS'] = report_df['CLEARANCE_TIME_HOURS'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
-    report_df['PRIORITY_SCORE'] = report_df['PRIORITY_SCORE'].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "NaN")
+    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
+    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
+    report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
+    report_df['CLEARANCE_TIME_HOURS'] = report_df['CLEARANCE_TIME_HOURS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
+    report_df['PRIORITY_SCORE'] = report_df['PRIORITY_SCORE'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
     csv = report_df.to_csv(index=False)
     st.download_button("Download CSV Report", csv, "fault_clearance_report.csv", "text/csv")
 
