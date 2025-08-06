@@ -4,13 +4,21 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import re
-import locale
-
-# Set locale for comma formatting
-locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
 
 # Streamlit page configuration
 st.set_page_config(page_title="Ikeja Electric Fault Clearance Dashboard", layout="wide")
+
+# Custom function for comma-separated number formatting
+def format_number(value, decimals=2):
+    if pd.isna(value):
+        return "NaN"
+    try:
+        # Format as integer if decimals=0, else float with specified decimals
+        if decimals == 0:
+            return f"{int(value):,}"
+        return f"{value:,.{decimals}f}"
+    except (ValueError, TypeError):
+        return "NaN"
 
 # Title and description
 st.title("Ikeja Electric Monthly Fault Clearance Dashboard")
@@ -104,11 +112,9 @@ if uploaded_file is not None:
     # Feeder ratings (based on average downtime, lower is better)
     def calculate_feeder_ratings(df_grouped):
         if len(df_grouped) < 2 or df_grouped['DOWNTIME_HOURS'].nunique() < 2:
-            # Fallback: Assign 'Unknown' rating if insufficient data
             df_grouped['RATING'] = 'Unknown'
         else:
             try:
-                # Use fewer bins if unique values are limited
                 n_bins = min(4, df_grouped['DOWNTIME_HOURS'].nunique())
                 df_grouped['RATING'] = pd.qcut(df_grouped['DOWNTIME_HOURS'], q=n_bins, labels=['Excellent', 'Good', 'Fair', 'Poor'][:n_bins], duplicates='drop')
             except ValueError:
@@ -230,14 +236,14 @@ if uploaded_file is not None:
     st.subheader("Key Metrics")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Faults", len(filtered_df))
+        st.metric("Total Faults", format_number(len(filtered_df), decimals=0))
     with col2:
-        st.metric("Total Energy Loss (MWh)", locale.format_string("%d", filtered_df['ENERGY_LOSS_MWH'].sum(), grouping=True))
+        st.metric("Total Energy Loss (MWh)", format_number(filtered_df['ENERGY_LOSS_MWH'].sum(), decimals=2))
     with col3:
-        st.metric("Total Monetary Loss (M NGN)", locale.format_string("%.2f", filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum(), grouping=True))
+        st.metric("Total Monetary Loss (M NGN)", format_number(filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum(), decimals=2))
 
     st.subheader("Total Downtime")
-    st.metric("Total Downtime (Hours)", locale.format_string("%.2f", filtered_df['DOWNTIME_HOURS'].sum(), grouping=True))
+    st.metric("Total Downtime (Hours)", format_number(filtered_df['DOWNTIME_HOURS'].sum(), decimals=2))
 
     # Alerts for outliers
     if not clearance_outliers_filtered.empty:
@@ -286,11 +292,11 @@ if uploaded_file is not None:
     report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
     # Format numeric columns with commas for CSV
-    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
-    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
-    report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
-    report_df['CLEARANCE_TIME_HOURS'] = report_df['CLEARANCE_TIME_HOURS'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
-    report_df['PRIORITY_SCORE'] = report_df['PRIORITY_SCORE'].apply(lambda x: locale.format_string("%.2f", x, grouping=True) if pd.notnull(x) else "NaN")
+    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
+    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
+    report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
+    report_df['CLEARANCE_TIME_HOURS'] = report_df['CLEARANCE_TIME_HOURS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
+    report_df['PRIORITY_SCORE'] = report_df['PRIORITY_SCORE'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
     csv = report_df.to_csv(index=False)
     st.download_button("Download CSV Report", csv, "fault_clearance_report.csv", "text/csv")
 
