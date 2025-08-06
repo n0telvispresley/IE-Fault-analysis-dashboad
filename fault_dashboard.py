@@ -71,8 +71,8 @@ if uploaded_file is not None:
     # Energy loss (assuming LOAD LOSS is in MW, converting to MWh for downtime period)
     df['ENERGY_LOSS_MWH'] = df['LOAD LOSS'] * df['DOWNTIME_HOURS']
 
-    # Monetary loss (using 209.5 NGN/kWh for Band A feeders)
-    df['MONETARY_LOSS_NGN'] = df['ENERGY_LOSS_MWH'] * 1000 * 209.5
+    # Monetary loss (using 209.5 NGN/kWh for Band A feeders, convert to millions)
+    df['MONETARY_LOSS_NGN_MILLIONS'] = (df['ENERGY_LOSS_MWH'] * 1000 * 209.5) / 1_000_000
 
     # Fault classification with emergency detection
     def classify_fault(fault_str):
@@ -97,8 +97,6 @@ if uploaded_file is not None:
             return 'Other'
 
     df['FAULT_TYPE'] = df['FAULT/OPERATION'].apply(classify_fault)
-    fault_counts = df['FAULT_TYPE'].value_counts().reset_index()
-    fault_counts.columns = ['Fault Type', 'Count']
 
     # Feeder ratings (based on average downtime, lower is better)
     feeder_downtime = df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
@@ -165,10 +163,26 @@ if uploaded_file is not None:
     clearance_outliers = df[df['CLEARANCE_TIME_HOURS'] > 48][['11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS']]
     clearance_outliers['CLEARANCE_TIME_HOURS'] = clearance_outliers['CLEARANCE_TIME_HOURS'].round(2)
 
-    # Dynamic feeder filter
-    st.subheader("Filter by Feeder")
-    feeder_filter = st.selectbox("Select Feeder", ['All'] + list(df['11kV FEEDER'].unique()))
-    filtered_df = df if feeder_filter == 'All' else df[df['11kV FEEDER'] == feeder_filter]
+    # Dynamic filters
+    st.subheader("Filter Data")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        feeder_filter = st.selectbox("Select Feeder", ['All'] + list(df['11kV FEEDER'].unique()))
+    with col2:
+        df['YEAR'] = df['DATE REPORTED'].dt.year
+        year_filter = st.selectbox("Select Year", ['All'] + sorted(df['YEAR'].unique().tolist()))
+    with col3:
+        df['MONTH'] = df['DATE REPORTED'].dt.month
+        month_filter = st.selectbox("Select Month", ['All'] + sorted(df['MONTH'].unique().tolist()))
+
+    # Apply filters
+    filtered_df = df
+    if feeder_filter != 'All':
+        filtered_df = filtered_df[filtered_df['11kV FEEDER'] == feeder_filter]
+    if year_filter != 'All':
+        filtered_df = filtered_df[filtered_df['YEAR'] == year_filter]
+    if month_filter != 'All':
+        filtered_df = filtered_df[filtered_df['MONTH'] == month_filter]
 
     # Update metrics and visuals based on filtered data
     fault_counts_filtered = filtered_df['FAULT_TYPE'].value_counts().reset_index()
@@ -197,9 +211,9 @@ if uploaded_file is not None:
     with col1:
         st.metric("Total Faults", len(filtered_df))
     with col2:
-        st.metric("Total Energy Loss (MWh)", round(filtered_df['ENERGY_LOSS_MWH'].sum(), 2))
+        st.metric("Total Energy Loss (MWh)", f"{filtered_df['ENERGY_LOSS_MWH'].sum():,.2f}")
     with col3:
-        st.metric("Total Monetary Loss (NGN)", round(filtered_df['MONETARY_LOSS_NGN'].sum(), 2))
+        st.metric("Total Monetary Loss (M NGN)", f"{filtered_df['MONETARY_LOSS_NGN_MILLIONS'].sum():,.2f}")
 
     st.subheader("Total Downtime")
     st.metric("Total Downtime (Hours)", round(filtered_df['DOWNTIME_HOURS'].sum(), 2))
@@ -248,8 +262,11 @@ if uploaded_file is not None:
 
     # Export report as CSV
     st.subheader("Download Report")
-    report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
+    report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
+    # Format numeric columns with commas for CSV
+    report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].map('{:.2f}'.format)
+    report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].map('{:.2f}'.format)
     csv = report_df.to_csv(index=False)
     st.download_button("Download CSV Report", csv, "fault_clearance_report.csv", "text/csv")
 
