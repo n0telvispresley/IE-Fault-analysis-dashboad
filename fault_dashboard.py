@@ -52,13 +52,13 @@ if uploaded_file is not None:
     df['CLEARANCE_TIME_HOURS'] = (df['CLEARED_TIMESTAMP'] - df['REPORTED_TIMESTAMP']).dt.total_seconds() / 3600
     df['CLEARANCE_TIME_HOURS'] = df['CLEARANCE_TIME_HOURS'].abs()
 
-    # Filter out faults labeled "Opened on Emergency" or "OE"
+    # Filter out faults labeled "Opened on Emergency", "OE", or "emergency"
     df['FAULT/OPERATION'] = df['FAULT/OPERATION'].astype(str).replace('nan', 'Unknown')
     initial_count = len(df)
-    df = df[~df['FAULT/OPERATION'].str.lower().str.contains('opened on emergency|oe', na=False)]
+    df = df[~df['FAULT/OPERATION'].str.lower().str.contains('opened on emergency|oe|emergency', na=False)]
     filtered_count = initial_count - len(df)
     if filtered_count > 0:
-        st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency' or 'OE' as they are handled by CHQ.")
+        st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency', 'OE', or 'emergency' as they are handled by CHQ.")
 
     # Debug outputs in expander
     with st.expander("Debug Data (For Validation)"):
