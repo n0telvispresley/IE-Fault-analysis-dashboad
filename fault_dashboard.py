@@ -13,7 +13,6 @@ def format_number(value, decimals=2):
     if pd.isna(value):
         return "NaN"
     try:
-        # Format as integer if decimals=0, else float with specified decimals
         if decimals == 0:
             return f"{int(value):,}"
         return f"{value:,.{decimals}f}"
@@ -53,9 +52,17 @@ if uploaded_file is not None:
     df['CLEARANCE_TIME_HOURS'] = (df['CLEARED_TIMESTAMP'] - df['REPORTED_TIMESTAMP']).dt.total_seconds() / 3600
     df['CLEARANCE_TIME_HOURS'] = df['CLEARANCE_TIME_HOURS'].abs()
 
+    # Filter out faults labeled "Opened on Emergency" or "OE"
+    df['FAULT/OPERATION'] = df['FAULT/OPERATION'].astype(str).replace('nan', 'Unknown')
+    initial_count = len(df)
+    df = df[~df['FAULT/OPERATION'].str.lower().str.contains('opened on emergency|oe', na=False)]
+    filtered_count = initial_count - len(df)
+    if filtered_count > 0:
+        st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency' or 'OE' as they are handled by CHQ.")
+
     # Debug outputs in expander
     with st.expander("Debug Data (For Validation)"):
-        st.write("**LOAD LOSS Column**")
+        st.write("**LOAD LOSS (Current in Amps) Column**")
         st.write("Sample values:", df['LOAD LOSS'].head().to_list())
         st.write("Data type:", df['LOAD LOSS'].dtype)
         st.write("Any non-numeric values:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float))).sum())
@@ -66,33 +73,49 @@ if uploaded_file is not None:
         st.write("**PHASE AFFECTED Column**")
         st.write("Sample values:", df['PHASE AFFECTED'].head().to_list())
         st.write("Data type:", df['PHASE AFFECTED'].dtype)
+        st.write("**11kV FEEDER Column**")
+        st.write("Sample values:", df['11kV FEEDER'].head().to_list())
 
-    # Convert LOAD LOSS to numeric, coercing invalid values to NaN
+    # Convert LOAD LOSS (current in amps) to numeric, coercing invalid values to NaN
     df['LOAD LOSS'] = pd.to_numeric(df['LOAD LOSS'], errors='coerce')
 
-    # Check for NaN values after conversion
+    # Extract voltage (11 kV or 33 kV) from the first part of 11kV FEEDER
+    def extract_voltage(feeder_name):
+        if not isinstance(feeder_name, str) or pd.isna(feeder_name):
+            return None
+        try:
+            # Get part before first hyphen and convert to float (expecting 11 or 33)
+            voltage_kv = float(feeder_name.split('-')[0].strip())
+            # Convert to volts (kV to V)
+            return voltage_kv * 1000
+        except (ValueError, IndexError):
+            return None
+
+    df['VOLTAGE_V'] = df['11kV FEEDER'].apply(extract_voltage)
+
+    # Check for NaN values in LOAD LOSS and VOLTAGE_V
     if df['LOAD LOSS'].isna().sum() > 0:
-        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS. These have been converted to NaN.")
+        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS (current). These have been converted to NaN.")
+    if df['VOLTAGE_V'].isna().sum() > 0:
+        st.warning(f"Found {df['VOLTAGE_V'].isna().sum()} invalid voltage values derived from 11kV FEEDER. Ensure feeder names start with '11-' or '33-'. These have been converted to NaN.")
     if df['CLEARANCE_TIME_HOURS'].isna().sum() > 0:
         st.warning(f"Found {df['CLEARANCE_TIME_HOURS'].isna().sum()} invalid clearance times due to missing or incorrect date/time data.")
 
-    # Convert FAULT/OPERATION to string, handling NaN
-    df['FAULT/OPERATION'] = df['FAULT/OPERATION'].astype(str).replace('nan', 'Unknown')
-
-    # Energy loss (assuming LOAD LOSS is in MW, converting to MWh for downtime period)
-    df['ENERGY_LOSS_MWH'] = df['LOAD LOSS'] * df['DOWNTIME_HOURS']
+    # Calculate energy loss using E = I * V * t (in watt-hours, then convert to MWh)
+    # E (Wh) = Current (A) * Voltage (V) * Time (h)
+    df['ENERGY_LOSS_WH'] = df['LOAD LOSS'] * df['VOLTAGE_V'] * df['DOWNTIME_HOURS']
+    # Convert watt-hours to megawatt-hours (1 MWh = 1,000,000 Wh)
+    df['ENERGY_LOSS_MWH'] = df['ENERGY_LOSS_WH'] / 1_000_000
 
     # Monetary loss (using 209.5 NGN/kWh for Band A feeders, convert to millions)
     df['MONETARY_LOSS_NGN_MILLIONS'] = (df['ENERGY_LOSS_MWH'] * 1000 * 209.5) / 1_000_000
 
-    # Fault classification with emergency detection
+    # Fault classification
     def classify_fault(fault_str):
         if not isinstance(fault_str, str) or fault_str == 'Unknown':
             return 'Unknown'
         fault_str = fault_str.lower()
-        if 'emergency' in fault_str:
-            return 'Emergency Fault'
-        elif 'e/f' in fault_str or 'earth fault' in fault_str:
+        if 'e/f' in fault_str or 'earth fault' in fault_str:
             return 'Earth Fault'
         elif 'o/c' in fault_str or 'over current' in fault_str:
             return 'Over Current'
@@ -124,19 +147,17 @@ if uploaded_file is not None:
     feeder_downtime = df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
     feeder_downtime = calculate_feeder_ratings(feeder_downtime)
 
-    # Frequent tripping feeders (more than 2 trips in a month)
+    # Frequent tripping feeders (more than 2 trips)
     feeder_trips = df['11kV FEEDER'].value_counts().reset_index()
     feeder_trips.columns = ['11kV FEEDER', 'TRIP_COUNT']
     frequent_trippers = feeder_trips[feeder_trips['TRIP_COUNT'] > 2]
 
-    # Maintenance suggestions based on fault types
+    # Maintenance suggestions
     def suggest_maintenance(fault_type):
         if not isinstance(fault_type, str) or fault_type == 'Unknown':
             return "Conduct root cause analysis for unspecified fault."
         fault_type = fault_type.lower()
-        if 'emergency' in fault_type:
-            return "Prioritize immediate response; investigate root cause of emergency fault."
-        elif 'e/f' in fault_type or 'earth fault' in fault_type:
+        if 'e/f' in fault_type or 'earth fault' in fault_type:
             return "Inspect grounding systems and insulation; repair earth faults."
         elif 'o/c' in fault_type or 'over current' in fault_type:
             return "Check for overloads and short circuits; calibrate protective devices."
@@ -153,7 +174,7 @@ if uploaded_file is not None:
 
     df['MAINTENANCE_SUGGESTION'] = df['FAULT/OPERATION'].apply(suggest_maintenance)
 
-    # Phase-specific fault analysis (handling multiple phases in one cell)
+    # Phase-specific fault analysis
     def parse_phases(phase_str):
         if not isinstance(phase_str, str) or pd.isna(phase_str) or phase_str.lower() == 'nan':
             return []
@@ -216,6 +237,12 @@ if uploaded_file is not None:
     fault_counts_filtered.columns = ['Fault Type', 'Count']
     feeder_downtime_filtered = filtered_df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
     feeder_downtime_filtered = calculate_feeder_ratings(feeder_downtime_filtered)
+    # Add short feeder name for display
+    def get_short_feeder_name(feeder_name):
+        if not isinstance(feeder_name, str) or pd.isna(feeder_name):
+            return "Unknown"
+        return feeder_name.split('-')[-1].strip()
+    feeder_downtime_filtered['SHORT_FEEDER_NAME'] = feeder_downtime_filtered['11kV FEEDER'].apply(get_short_feeder_name)
     frequent_trippers_filtered = filtered_df['11kV FEEDER'].value_counts().reset_index()
     frequent_trippers_filtered.columns = ['11kV FEEDER', 'TRIP_COUNT']
     frequent_trippers_filtered = frequent_trippers_filtered[frequent_trippers_filtered['TRIP_COUNT'] > 2]
@@ -261,8 +288,8 @@ if uploaded_file is not None:
     fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend")
     st.plotly_chart(fig_trend, use_container_width=True)
 
-    st.subheader("Total Downtime by Feeder")
-    fig_downtime = px.bar(feeder_downtime_filtered, x='11kV FEEDER', y='DOWNTIME_HOURS', color='RATING', title="Average Downtime by Feeder")
+    st.subheader("Average Downtime by Feeder")
+    fig_downtime = px.bar(feeder_downtime_filtered, x='SHORT_FEEDER_NAME', y='DOWNTIME_HOURS', color='RATING', title="Average Downtime by Feeder")
     st.plotly_chart(fig_downtime, use_container_width=True)
 
     st.subheader("Frequent Tripping Feeders (>2 Trips)")
@@ -291,7 +318,6 @@ if uploaded_file is not None:
     st.subheader("Download Report")
     report_df = filtered_df[['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
-    # Format numeric columns with commas for CSV
     report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
     report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
     report_df['DOWNTIME_HOURS'] = report_df['DOWNTIME_HOURS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
