@@ -63,7 +63,7 @@ if uploaded_file is not None:
         'FAULT/OPERATION',
         'PHASE AFFECTED'
     ]
-    optional_columns = ['RESPONSIBLE UNDERTAKINGS']
+    optional_columns = ['RESPONSIBLE UNDERTAKINGS', 'FINDINGS/ACTION TAKEN']
 
     # Validate columns
     missing_required = [col for col in required_columns if col not in df.columns]
@@ -72,7 +72,7 @@ if uploaded_file is not None:
         st.error(f"Error: Missing required columns: {', '.join(missing_required)}. Please check the Excel file headers on row 11.")
         st.stop()
     if missing_optional:
-        st.warning(f"Missing optional columns: {', '.join(missing_optional)}. Some features (e.g., undertakings filter) may be disabled.")
+        st.warning(f"Missing optional columns: {', '.join(missing_optional)}. Some features (e.g., undertakings filter, findings in outliers) may be disabled.")
 
     # Ensure date and time columns are in datetime format
     date_time_cols = ['DATE REPORTED', 'TIME REPORTED', 'DATE CLEARED', 'TIME CLEARED', 'DATE RESTORED', 'TIME RESTORED']
@@ -126,6 +126,9 @@ if uploaded_file is not None:
         if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
             st.write("**RESPONSIBLE UNDERTAKINGS Column**")
             st.write("Sample values:", df['RESPONSIBLE UNDERTAKINGS'].head().to_list())
+        if 'FINDINGS/ACTION TAKEN' in df.columns:
+            st.write("**FINDINGS/ACTION TAKEN Column**")
+            st.write("Sample values:", df['FINDINGS/ACTION TAKEN'].head().to_list())
 
     # Convert LOAD LOSS (current in amps) to numeric, coercing invalid values to NaN
     df['LOAD LOSS'] = pd.to_numeric(df['LOAD LOSS'], errors='coerce')
@@ -153,13 +156,18 @@ if uploaded_file is not None:
         st.warning(f"Found {df['BUSINESS UNIT'].isna().sum()} missing values in BUSINESS UNIT. These may affect filtering.")
     if 'RESPONSIBLE UNDERTAKINGS' in df.columns and df['RESPONSIBLE UNDERTAKINGS'].isna().sum() > 0:
         st.warning(f"Found {df['RESPONSIBLE UNDERTAKINGS'].isna().sum()} missing values in RESPONSIBLE UNDERTAKINGS. These may affect filtering.")
+    if 'FINDINGS/ACTION TAKEN' in df.columns and df['FINDINGS/ACTION TAKEN'].isna().sum() > 0:
+        st.warning(f"Found {df['FINDINGS/ACTION TAKEN'].isna().sum()} missing values in FINDINGS/ACTION TAKEN. These may affect outlier analysis.")
 
     # Handle multiple undertakings by creating a list column for filtering
     if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
         def split_undertakings(undertakings):
             if not isinstance(undertakings, str) or pd.isna(undertakings):
                 return []
-            return [u.strip() for u in undertakings.split('/')]
+            # Replace multiple separators with /
+            undertakings = re.sub(r'\s*(?:AND|&|and)\s*', '/', undertakings, flags=re.IGNORECASE)
+            # Split on / and normalize (lowercase, strip whitespace)
+            return [u.strip().lower() for u in undertakings.split('/') if u.strip()]
         df['UNDERTAKINGS_LIST'] = df['RESPONSIBLE UNDERTAKINGS'].apply(split_undertakings)
 
     # Calculate energy loss using E = I * V * t (in watt-hours, then convert to MWh)
@@ -262,7 +270,10 @@ if uploaded_file is not None:
     ).fillna(0)
 
     # Identify clearance time outliers (>48 hours)
-    clearance_outliers = df[df['CLEARANCE_TIME_HOURS'] > 48][['11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS']]
+    outlier_columns = ['11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS']
+    if 'FINDINGS/ACTION TAKEN' in df.columns:
+        outlier_columns.append('FINDINGS/ACTION TAKEN')
+    clearance_outliers = df[df['CLEARANCE_TIME_HOURS'] > 48][outlier_columns]
     clearance_outliers['CLEARANCE_TIME_HOURS'] = clearance_outliers['CLEARANCE_TIME_HOURS'].round(2)
 
     # Dynamic filters
@@ -330,7 +341,10 @@ if uploaded_file is not None:
         'Fault Count': phase_counts_filtered.values()
     })
     phase_faults_filtered = phase_faults_filtered[phase_faults_filtered['Fault Count'] > 0]
-    clearance_outliers_filtered = filtered_df[filtered_df['CLEARANCE_TIME_HOURS'] > 48][['11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS']]
+    outlier_columns_filtered = ['11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS']
+    if 'FINDINGS/ACTION TAKEN' in df.columns:
+        outlier_columns_filtered.append('FINDINGS/ACTION TAKEN')
+    clearance_outliers_filtered = filtered_df[filtered_df['CLEARANCE_TIME_HOURS'] > 48][outlier_columns_filtered]
     clearance_outliers_filtered['CLEARANCE_TIME_HOURS'] = clearance_outliers_filtered['CLEARANCE_TIME_HOURS'].round(2)
 
     # Dashboard layout
@@ -415,7 +429,7 @@ if uploaded_file is not None:
     fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)")
     st.plotly_chart(fig_clearance, use_container_width=True)
 
-    st.write("2. **Clearance Time Outliers (>48 Hours)**: Faults taking more than 48 hours to clear.")
+    st.write("2. **Clearance Time Outliers (>48 Hours)**: Faults taking more than 48 hours to clear, with findings.")
     st.dataframe(clearance_outliers_filtered)
 
     st.write("3. **Phase-Specific Faults**: Fault counts by affected phase.")
@@ -427,6 +441,8 @@ if uploaded_file is not None:
     cols_to_export = ['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']
     if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
         cols_to_export.insert(1, 'RESPONSIBLE UNDERTAKINGS')
+    if 'FINDINGS/ACTION TAKEN' in df.columns:
+        cols_to_export.append('FINDINGS/ACTION TAKEN')
     report_df = filtered_df[cols_to_export]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
     report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
