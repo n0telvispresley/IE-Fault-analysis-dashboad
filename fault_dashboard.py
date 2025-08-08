@@ -1,9 +1,24 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
+import streamlit.components.v1 as components
 from datetime import datetime
 import re
+
+# Inject JavaScript to handle module fetch errors
+components.html(
+    """
+    <script>
+    window.addEventListener('error', function(e) {
+        if (e.message.includes('Failed to fetch dynamically imported module')) {
+            alert('Failed to load the app. Reloading the page...');
+            window.location.reload();
+        }
+    });
+    </script>
+    """,
+    height=0,
+)
 
 # Streamlit page configuration
 st.set_page_config(page_title="Ikeja Electric Fault Clearance Dashboard", layout="wide")
@@ -84,9 +99,7 @@ if uploaded_file is not None:
         if not isinstance(feeder_name, str) or pd.isna(feeder_name):
             return None
         try:
-            # Get part before first hyphen and convert to float (expecting 11 or 33)
             voltage_kv = float(feeder_name.split('-')[0].strip())
-            # Convert to volts (kV to V)
             return voltage_kv * 1000
         except (ValueError, IndexError):
             return None
@@ -102,9 +115,7 @@ if uploaded_file is not None:
         st.warning(f"Found {df['CLEARANCE_TIME_HOURS'].isna().sum()} invalid clearance times due to missing or incorrect date/time data.")
 
     # Calculate energy loss using E = I * V * t (in watt-hours, then convert to MWh)
-    # E (Wh) = Current (A) * Voltage (V) * Time (h)
     df['ENERGY_LOSS_WH'] = df['LOAD LOSS'] * df['VOLTAGE_V'] * df['DOWNTIME_HOURS']
-    # Convert watt-hours to megawatt-hours (1 MWh = 1,000,000 Wh)
     df['ENERGY_LOSS_MWH'] = df['ENERGY_LOSS_WH'] / 1_000_000
 
     # Monetary loss (using 209.5 NGN/kWh for Band A feeders, convert to millions)
@@ -237,7 +248,6 @@ if uploaded_file is not None:
     fault_counts_filtered.columns = ['Fault Type', 'Count']
     feeder_downtime_filtered = filtered_df.groupby('11kV FEEDER')['DOWNTIME_HOURS'].mean().reset_index()
     feeder_downtime_filtered = calculate_feeder_ratings(feeder_downtime_filtered)
-    # Add short feeder name for display
     def get_short_feeder_name(feeder_name):
         if not isinstance(feeder_name, str) or pd.isna(feeder_name):
             return "Unknown"
@@ -289,36 +299,36 @@ if uploaded_file is not None:
     st.plotly_chart(fig_trend, use_container_width=True)
 
     st.subheader("Average Downtime by Feeder")
-    # Multiselect for selecting feeders to display
-    feeder_options = sorted(feeder_downtime_filtered['SHORT_FEEDER_NAME'].unique())
-    selected_feeders = st.multiselect(
-        "Select Feeders to Display (uses short names)",
-        options=feeder_options,
-        default=feeder_options,  # All feeders selected by default
-        help="Choose one or more feeders to compare their average downtime. Short names are shown (last part of feeder name)."
-    )
-    # Filter chart data based on selected feeders
-    if selected_feeders:
-        chart_data = feeder_downtime_filtered[feeder_downtime_filtered['SHORT_FEEDER_NAME'].isin(selected_feeders)]
+    if feeder_downtime_filtered.empty:
+        st.warning("No feeder data available for the selected filters. Adjust the feeder, year, or month filters.")
     else:
-        chart_data = feeder_downtime_filtered
-        st.warning("No feeders selected. Displaying all feeders.")
-    # Define custom colors for RATING categories
-    rating_colors = {
-        'Excellent': '#006400',  # Dark Green
-        'Good': '#32CD32',      # Lemon Green
-        'Fair': '#FFFF00',       # Yellow
-        'Poor': '#FF0000'        # Red
-    }
-    fig_downtime = px.bar(
-        chart_data,
-        x='SHORT_FEEDER_NAME',
-        y='DOWNTIME_HOURS',
-        color='RATING',
-        title="Average Downtime by Feeder",
-        color_discrete_map=rating_colors
-    )
-    st.plotly_chart(fig_downtime, use_container_width=True)
+        feeder_options = sorted(feeder_downtime_filtered['SHORT_FEEDER_NAME'].unique())
+        selected_feeders = st.multiselect(
+            "Select Feeders to Display (uses short names)",
+            options=feeder_options,
+            default=feeder_options,
+            help="Choose one or more feeders to compare their average downtime. Short names are shown (last part of feeder name)."
+        )
+        if selected_feeders:
+            chart_data = feeder_downtime_filtered[feeder_downtime_filtered['SHORT_FEEDER_NAME'].isin(selected_feeders)]
+        else:
+            chart_data = feeder_downtime_filtered
+            st.warning("No feeders selected. Displaying all feeders.")
+        rating_colors = {
+            'Excellent': '#006400',
+            'Good': '#32CD32',
+            'Fair': '#FFFF00',
+            'Poor': '#FF0000'
+        }
+        fig_downtime = px.bar(
+            chart_data,
+            x='SHORT_FEEDER_NAME',
+            y='DOWNTIME_HOURS',
+            color='RATING',
+            title="Average Downtime by Feeder",
+            color_discrete_map=rating_colors
+        )
+        st.plotly_chart(fig_downtime, use_container_width=True)
 
     st.subheader("Frequent Tripping Feeders (>2 Trips)")
     st.dataframe(frequent_trippers_filtered)
