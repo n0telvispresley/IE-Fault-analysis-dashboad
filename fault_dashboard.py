@@ -289,6 +289,20 @@ if uploaded_file is not None:
     st.plotly_chart(fig_trend, use_container_width=True)
 
     st.subheader("Average Downtime by Feeder")
+    # Multiselect for selecting feeders to display
+    feeder_options = sorted(feeder_downtime_filtered['SHORT_FEEDER_NAME'].unique())
+    selected_feeders = st.multiselect(
+        "Select Feeders to Display (uses short names)",
+        options=feeder_options,
+        default=feeder_options,  # All feeders selected by default
+        help="Choose one or more feeders to compare their average downtime. Short names are shown (last part of feeder name)."
+    )
+    # Filter chart data based on selected feeders
+    if selected_feeders:
+        chart_data = feeder_downtime_filtered[feeder_downtime_filtered['SHORT_FEEDER_NAME'].isin(selected_feeders)]
+    else:
+        chart_data = feeder_downtime_filtered
+        st.warning("No feeders selected. Displaying all feeders.")
     # Define custom colors for RATING categories
     rating_colors = {
         'Excellent': '#006400',  # Dark Green
@@ -297,7 +311,7 @@ if uploaded_file is not None:
         'Poor': '#FF0000'        # Red
     }
     fig_downtime = px.bar(
-        feeder_downtime_filtered,
+        chart_data,
         x='SHORT_FEEDER_NAME',
         y='DOWNTIME_HOURS',
         color='RATING',
