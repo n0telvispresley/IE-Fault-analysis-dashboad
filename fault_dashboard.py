@@ -289,7 +289,21 @@ if uploaded_file is not None:
     st.plotly_chart(fig_trend, use_container_width=True)
 
     st.subheader("Average Downtime by Feeder")
-    fig_downtime = px.bar(feeder_downtime_filtered, x='SHORT_FEEDER_NAME', y='DOWNTIME_HOURS', color='RATING', title="Average Downtime by Feeder")
+    # Define custom colors for RATING categories
+    rating_colors = {
+        'Excellent': '#006400',  # Dark Green
+        'Good': '#32CD32',      # Lemon Green
+        'Fair': '#FFFF00',       # Yellow
+        'Poor': '#FF0000'        # Red
+    }
+    fig_downtime = px.bar(
+        feeder_downtime_filtered,
+        x='SHORT_FEEDER_NAME',
+        y='DOWNTIME_HOURS',
+        color='RATING',
+        title="Average Downtime by Feeder",
+        color_discrete_map=rating_colors
+    )
     st.plotly_chart(fig_downtime, use_container_width=True)
 
     st.subheader("Frequent Tripping Feeders (>2 Trips)")
