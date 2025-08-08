@@ -49,6 +49,31 @@ if uploaded_file is not None:
         st.error(f"Error: Could not find sheet '11kV Tripping Log' in the uploaded file. Please ensure the sheet exists. ({str(e)})")
         st.stop()
 
+    # Define required and optional columns
+    required_columns = [
+        'BUSINESS UNIT',
+        '11kV FEEDER',
+        'LOAD LOSS',
+        'DATE REPORTED',
+        'TIME REPORTED',
+        'DATE CLEARED',
+        'TIME CLEARED',
+        'DATE RESTORED',
+        'TIME RESTORED',
+        'FAULT/OPERATION',
+        'PHASE AFFECTED'
+    ]
+    optional_columns = ['RESPONSIBLE UNDERTAKINGS']
+
+    # Validate columns
+    missing_required = [col for col in required_columns if col not in df.columns]
+    missing_optional = [col for col in optional_columns if col not in df.columns]
+    if missing_required:
+        st.error(f"Error: Missing required columns: {', '.join(missing_required)}. Please check the Excel file headers on row 11.")
+        st.stop()
+    if missing_optional:
+        st.warning(f"Missing optional columns: {', '.join(missing_optional)}. Some features (e.g., undertakings filter) may be disabled.")
+
     # Ensure date and time columns are in datetime format
     date_time_cols = ['DATE REPORTED', 'TIME REPORTED', 'DATE CLEARED', 'TIME CLEARED', 'DATE RESTORED', 'TIME RESTORED']
     for col in date_time_cols:
@@ -98,8 +123,9 @@ if uploaded_file is not None:
         st.write("Sample values:", df['11kV FEEDER'].head().to_list())
         st.write("**BUSINESS UNIT Column**")
         st.write("Sample values:", df['BUSINESS UNIT'].head().to_list())
-        st.write("**RESPONSIBLE UNDERTAKING Column**")
-        st.write("Sample values:", df['RESPONSIBLE UNDERTAKING'].head().to_list())
+        if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+            st.write("**RESPONSIBLE UNDERTAKINGS Column**")
+            st.write("Sample values:", df['RESPONSIBLE UNDERTAKINGS'].head().to_list())
 
     # Convert LOAD LOSS (current in amps) to numeric, coercing invalid values to NaN
     df['LOAD LOSS'] = pd.to_numeric(df['LOAD LOSS'], errors='coerce')
@@ -125,8 +151,16 @@ if uploaded_file is not None:
         st.warning(f"Found {df['CLEARANCE_TIME_HOURS'].isna().sum()} invalid clearance times due to missing or incorrect date/time data.")
     if df['BUSINESS UNIT'].isna().sum() > 0:
         st.warning(f"Found {df['BUSINESS UNIT'].isna().sum()} missing values in BUSINESS UNIT. These may affect filtering.")
-    if df['RESPONSIBLE UNDERTAKING'].isna().sum() > 0:
-        st.warning(f"Found {df['RESPONSIBLE UNDERTAKING'].isna().sum()} missing values in RESPONSIBLE UNDERTAKING. These may affect filtering.")
+    if 'RESPONSIBLE UNDERTAKINGS' in df.columns and df['RESPONSIBLE UNDERTAKINGS'].isna().sum() > 0:
+        st.warning(f"Found {df['RESPONSIBLE UNDERTAKINGS'].isna().sum()} missing values in RESPONSIBLE UNDERTAKINGS. These may affect filtering.")
+
+    # Handle multiple undertakings by creating a list column for filtering
+    if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+        def split_undertakings(undertakings):
+            if not isinstance(undertakings, str) or pd.isna(undertakings):
+                return []
+            return [u.strip() for u in undertakings.split('/')]
+        df['UNDERTAKINGS_LIST'] = df['RESPONSIBLE UNDERTAKINGS'].apply(split_undertakings)
 
     # Calculate energy loss using E = I * V * t (in watt-hours, then convert to MWh)
     df['ENERGY_LOSS_WH'] = df['LOAD LOSS'] * df['VOLTAGE_V'] * df['DOWNTIME_HOURS']
@@ -237,8 +271,16 @@ if uploaded_file is not None:
     with col1:
         bu_filter = st.selectbox("Select Business Unit", ['All'] + sorted(df['BUSINESS UNIT'].unique().astype(str).tolist()))
     with col2:
-        undertaking_options = sorted(df['RESPONSIBLE UNDERTAKING'].unique().astype(str).tolist())
-        undertaking_filter = st.multiselect("Select Responsible Undertaking", undertaking_options, default=undertaking_options)
+        if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+            # Get unique undertakings by splitting multi-undertaking entries
+            all_undertakings = set()
+            for undertakings in df['UNDERTAKINGS_LIST']:
+                all_undertakings.update(undertakings)
+            undertaking_options = sorted(list(all_undertakings))
+            undertaking_filter = st.multiselect("Select Responsible Undertakings", undertaking_options, default=undertaking_options)
+        else:
+            undertaking_filter = []
+            st.write("Responsible Undertakings filter disabled (column not found).")
     with col3:
         feeder_filter = st.selectbox("Select Feeder", ['All'] + sorted(df['11kV FEEDER'].unique().astype(str).tolist()))
     with col4:
@@ -251,8 +293,8 @@ if uploaded_file is not None:
     filtered_df = df
     if bu_filter != 'All':
         filtered_df = filtered_df[filtered_df['BUSINESS UNIT'].astype(str) == bu_filter]
-    if undertaking_filter:
-        filtered_df = filtered_df[filtered_df['RESPONSIBLE UNDERTAKING'].astype(str).isin(undertaking_filter)]
+    if undertaking_filter and 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+        filtered_df = filtered_df[filtered_df['UNDERTAKINGS_LIST'].apply(lambda x: any(u in undertaking_filter for u in x))]
     if feeder_filter != 'All':
         filtered_df = filtered_df[filtered_df['11kV FEEDER'].astype(str) == feeder_filter]
     if year_filter != 'All':
@@ -322,7 +364,7 @@ if uploaded_file is not None:
 
     st.subheader("Average Downtime by Feeder")
     if feeder_downtime_filtered.empty:
-        st.warning("No feeder data available for the selected filters. Adjust the business unit, undertaking, feeder, year, or month filters.")
+        st.warning("No feeder data available for the selected filters. Adjust the business unit, undertakings, feeder, year, or month filters.")
     else:
         feeder_options = sorted(feeder_downtime_filtered['SHORT_FEEDER_NAME'].unique())
         selected_feeders = st.multiselect(
@@ -356,10 +398,16 @@ if uploaded_file is not None:
     st.dataframe(frequent_trippers_filtered)
 
     st.subheader("Maintenance Suggestions")
-    st.dataframe(filtered_df[['BUSINESS UNIT', 'RESPONSIBLE UNDERTAKING', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'MAINTENANCE_SUGGESTION']].drop_duplicates())
+    cols_to_show = ['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'MAINTENANCE_SUGGESTION']
+    if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+        cols_to_show.insert(1, 'RESPONSIBLE UNDERTAKINGS')
+    st.dataframe(filtered_df[cols_to_show].drop_duplicates())
 
     st.subheader("High-Priority Faults")
-    st.dataframe(filtered_df[['BUSINESS UNIT', 'RESPONSIBLE UNDERTAKING', '11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS', 'ENERGY_LOSS_MWH', 'PRIORITY_SCORE']].sort_values('PRIORITY_SCORE', ascending=False).head(10))
+    cols_to_show = ['BUSINESS UNIT', '11kV FEEDER', 'FAULT_TYPE', 'CLEARANCE_TIME_HOURS', 'ENERGY_LOSS_MWH', 'PRIORITY_SCORE']
+    if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+        cols_to_show.insert(1, 'RESPONSIBLE UNDERTAKINGS')
+    st.dataframe(filtered_df[cols_to_show].sort_values('PRIORITY_SCORE', ascending=False).head(10))
 
     st.subheader("Additional Insights")
     st.write("1. **Fault Clearance Time Distribution (0-48 Hours)**: Distribution of clearance times up to 48 hours.")
@@ -376,7 +424,10 @@ if uploaded_file is not None:
 
     # Export report as CSV
     st.subheader("Download Report")
-    report_df = filtered_df[['BUSINESS UNIT', 'RESPONSIBLE UNDERTAKING', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']]
+    cols_to_export = ['BUSINESS UNIT', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'ENERGY_LOSS_MWH', 'MONETARY_LOSS_NGN_MILLIONS', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'MAINTENANCE_SUGGESTION', 'PRIORITY_SCORE']
+    if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
+        cols_to_export.insert(1, 'RESPONSIBLE UNDERTAKINGS')
+    report_df = filtered_df[cols_to_export]
     report_df = report_df.merge(feeder_downtime_filtered[['11kV FEEDER', 'RATING']], on='11kV FEEDER', how='left')
     report_df['ENERGY_LOSS_MWH'] = report_df['ENERGY_LOSS_MWH'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
     report_df['MONETARY_LOSS_NGN_MILLIONS'] = report_df['MONETARY_LOSS_NGN_MILLIONS'].apply(lambda x: format_number(x, decimals=2) if pd.notnull(x) else "NaN")
