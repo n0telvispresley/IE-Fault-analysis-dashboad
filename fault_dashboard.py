@@ -34,6 +34,18 @@ def format_number(value, decimals=2):
     except (ValueError, TypeError):
         return "NaN"
 
+# Function to clean LOAD LOSS values
+def clean_load_loss(value):
+    if not isinstance(value, str) or pd.isna(value):
+        return value
+    # Replace 'o' or 'O' with '0' in numeric parts
+    value = re.sub(r'[oO]', '0', value)
+    # Extract numeric part, remove units like 'amps', 'a', etc.
+    match = re.match(r'^\s*(\d*\.?\d*)\s*(?:amps?|a|A)?\s*$', value, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return value
+
 # Title and description
 st.title("Ikeja Electric Monthly Fault Clearance Dashboard")
 st.markdown("Upload an Excel file (sheet: '11kV Tripping Log') to analyze fault clearance operations across Business Units and Undertakings, including fault classification, energy/monetary losses, downtime, and more.")
@@ -74,6 +86,9 @@ if uploaded_file is not None:
     if missing_optional:
         st.warning(f"Missing optional columns: {', '.join(missing_optional)}. Some features (e.g., undertakings filter, findings in outliers) may be disabled.")
 
+    # Clean LOAD LOSS before conversion
+    df['LOAD LOSS'] = df['LOAD LOSS'].apply(clean_load_loss)
+
     # Ensure date and time columns are in datetime format
     date_time_cols = ['DATE REPORTED', 'TIME REPORTED', 'DATE CLEARED', 'TIME CLEARED', 'DATE RESTORED', 'TIME RESTORED']
     for col in date_time_cols:
@@ -109,9 +124,9 @@ if uploaded_file is not None:
         st.write("**Columns in DataFrame**")
         st.write(df.columns.tolist())
         st.write("**LOAD LOSS (Current in Amps) Column**")
-        st.write("Sample values:", df['LOAD LOSS'].head().to_list())
+        st.write("Raw sample values:", df['LOAD LOSS'].head().to_list())
         st.write("Data type:", df['LOAD LOSS'].dtype)
-        st.write("Any non-numeric values:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float))).sum())
+        st.write("Any non-numeric values after cleaning:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float)) and pd.notna(x)).sum())
         st.write("**FAULT/OPERATION Column**")
         st.write("Sample values:", df['FAULT/OPERATION'].head().to_list())
         st.write("Data type:", df['FAULT/OPERATION'].dtype)
@@ -130,7 +145,7 @@ if uploaded_file is not None:
             st.write("**FINDINGS/ACTION TAKEN Column**")
             st.write("Sample values:", df['FINDINGS/ACTION TAKEN'].head().to_list())
 
-    # Convert LOAD LOSS (current in amps) to numeric, coercing invalid values to NaN
+    # Convert LOAD LOSS to numeric, coercing invalid values to NaN
     df['LOAD LOSS'] = pd.to_numeric(df['LOAD LOSS'], errors='coerce')
 
     # Extract voltage (11 kV or 33 kV) from the first part of 11kV FEEDER
@@ -147,7 +162,7 @@ if uploaded_file is not None:
 
     # Check for NaN values in critical columns
     if df['LOAD LOSS'].isna().sum() > 0:
-        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS (current). These have been converted to NaN.")
+        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS (current) after cleaning. These have been converted to NaN.")
     if df['VOLTAGE_V'].isna().sum() > 0:
         st.warning(f"Found {df['VOLTAGE_V'].isna().sum()} invalid voltage values derived from 11kV FEEDER. Ensure feeder names start with '11-' or '33-'. These have been converted to NaN.")
     if df['CLEARANCE_TIME_HOURS'].isna().sum() > 0:
