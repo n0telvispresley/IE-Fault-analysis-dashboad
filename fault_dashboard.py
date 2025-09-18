@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import streamlit.components.v1 as components
-from datetime import datetime
 import re
 from streamlit_plotly_events import plotly_events
 
@@ -24,7 +23,7 @@ components.html(
 # Streamlit page configuration
 st.set_page_config(page_title="Ikeja Electric Fault Clearance Dashboard", layout="wide")
 
-# Custom function for comma-separated number formatting
+# Custom function for number formatting
 def format_number(value, decimals=2):
     if pd.isna(value):
         return "NaN"
@@ -47,7 +46,7 @@ def clean_load_loss(value):
 
 # Title and description
 st.title("Ikeja Electric Monthly Fault Clearance Dashboard")
-st.markdown("Upload an Excel file (sheet: '11kV Tripping Log') to analyze fault clearance operations across Business Units and Undertakings.")
+st.markdown("Upload an Excel file (sheet: '11kV Tripping Log') to analyze fault clearance operations.")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
@@ -56,7 +55,7 @@ if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file, sheet_name="11kV Tripping Log", header=10)
     except ValueError as e:
-        st.error(f"Error: Could not find sheet '11kV Tripping Log' in the uploaded file. ({str(e)})")
+        st.error(f"Error: Could not find sheet '11kV Tripping Log'. ({str(e)})")
         st.stop()
 
     required_columns = [
@@ -96,8 +95,8 @@ if uploaded_file is not None:
     if filtered_count > 0:
         st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency', 'OE', or 'emergency'.")
 
-    with st.expander("Debug Data (For Validation)"):
-        st.write("**Columns in DataFrame**", df.columns.tolist())
+    with st.expander("Debug Data"):
+        st.write("**Columns**", df.columns.tolist())
         st.write("**LOAD LOSS**", df['LOAD LOSS'].head().to_list())
         st.write("Data type:", df['LOAD LOSS'].dtype)
         st.write("Non-numeric values:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float)) and pd.notna(x)).sum())
@@ -189,22 +188,22 @@ if uploaded_file is not None:
 
     def suggest_maintenance(fault_type):
         if not isinstance(fault_type, str) or fault_type == 'Unknown':
-            return "Conduct root cause analysis for unspecified fault."
+            return "Conduct root cause analysis."
         fault_type = fault_type.lower()
         if 'e/f' in fault_type or 'earth fault' in fault_type:
-            return "Inspect grounding systems and insulation; repair earth faults."
+            return "Inspect grounding systems and insulation."
         elif 'o/c' in fault_type or 'over current' in fault_type:
-            return "Check for overloads and short circuits; calibrate protective devices."
+            return "Check for overloads and calibrate protective devices."
         elif 'b/c' in fault_type or 'broken conductor' in fault_type:
-            return "Replace broken conductors; inspect for physical damage."
+            return "Replace broken conductors."
         elif 'cable' in fault_type:
-            return "Inspect and replace damaged cables; check for water ingress."
+            return "Inspect and replace damaged cables."
         elif 'transformer' in fault_type:
-            return "Schedule transformer maintenance; check oil levels and insulation."
+            return "Schedule transformer maintenance."
         elif 'breaker' in fault_type:
-            return "Test and calibrate circuit breakers; inspect for wear."
+            return "Test and calibrate circuit breakers."
         else:
-            return "Conduct root cause analysis and regular preventive maintenance."
+            return "Conduct root cause analysis."
 
     df['MAINTENANCE_SUGGESTION'] = df['FAULT/OPERATION'].apply(suggest_maintenance)
 
@@ -363,10 +362,9 @@ if uploaded_file is not None:
     else:
         feeder_options = sorted(feeder_downtime_filtered['SHORT_FEEDER_NAME'].unique())
         selected_feeders = st.multiselect(
-            "Select Feeders to Display (uses short names)",
+            "Select Feeders to Display",
             options=feeder_options,
-            default=feeder_options,
-            help="Choose one or more feeders to compare their average downtime."
+            default=feeder_options
         )
         if selected_feeders:
             chart_data = feeder_downtime_filtered[feeder_downtime_filtered['SHORT_FEEDER_NAME'].isin(selected_feeders)]
@@ -387,7 +385,7 @@ if uploaded_file is not None:
         if selected_feeder:
             short_name = selected_feeder[0]['x']
             full_feeder = chart_data[chart_data['SHORT_FEEDER_NAME'] == short_name]['11kV FEEDER'].iloc[0]
-            with st.expander(f"Details for Feeder: {short_name} ({full_feeder})"):
+            with st.expander(f"Details for Feeder: {short_name}"):
                 filtered_details = filtered_df[filtered_df['11kV FEEDER'] == full_feeder][detail_cols].copy()
                 filtered_details['DOWNTIME_HOURS'] = filtered_details['DOWNTIME_HOURS'].round(2)
                 filtered_details['CLEARANCE_TIME_HOURS'] = filtered_details['CLEARANCE_TIME_HOURS'].round(2)
