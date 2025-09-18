@@ -47,7 +47,7 @@ def clean_load_loss(value):
 
 # Title and description
 st.title("Ikeja Electric Monthly Fault Clearance Dashboard")
-st.markdown("Upload an Excel file (sheet: '11kV Tripping Log') to analyze fault clearance operations across Business Units and Undertakings, including fault classification, energy/monetary losses, downtime, and more.")
+st.markdown("Upload an Excel file (sheet: '11kV Tripping Log') to analyze fault clearance operations across Business Units and Undertakings.")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
@@ -56,7 +56,7 @@ if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file, sheet_name="11kV Tripping Log", header=10)
     except ValueError as e:
-        st.error(f"Error: Could not find sheet '11kV Tripping Log' in the uploaded file. Please ensure the sheet exists. ({str(e)})")
+        st.error(f"Error: Could not find sheet '11kV Tripping Log' in the uploaded file. ({str(e)})")
         st.stop()
 
     required_columns = [
@@ -67,10 +67,10 @@ if uploaded_file is not None:
     missing_required = [col for col in required_columns if col not in df.columns]
     missing_optional = [col for col in optional_columns if col not in df.columns]
     if missing_required:
-        st.error(f"Error: Missing required columns: {', '.join(missing_required)}. Please check the Excel file headers on row 11.")
+        st.error(f"Error: Missing required columns: {', '.join(missing_required)}.")
         st.stop()
     if missing_optional:
-        st.warning(f"Missing optional columns: {', '.join(missing_optional)}. Some features may be disabled.")
+        st.warning(f"Missing optional columns: {', '.join(missing_optional)}.")
 
     df['LOAD LOSS'] = df['LOAD LOSS'].apply(clean_load_loss)
     date_time_cols = ['DATE REPORTED', 'TIME REPORTED', 'DATE CLEARED', 'TIME CLEARED', 'DATE RESTORED', 'TIME RESTORED']
@@ -94,22 +94,21 @@ if uploaded_file is not None:
     df = df[~df['FAULT/OPERATION'].str.lower().str.contains('opened on emergency|oe|emergency', na=False)]
     filtered_count = initial_count - len(df)
     if filtered_count > 0:
-        st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency', 'OE', or 'emergency' as they are handled by CHQ.")
+        st.info(f"Excluded {filtered_count} faults labeled 'Opened on Emergency', 'OE', or 'emergency'.")
 
     with st.expander("Debug Data (For Validation)"):
         st.write("**Columns in DataFrame**", df.columns.tolist())
-        st.write("**LOAD LOSS (Current in Amps) Column**", df['LOAD LOSS'].head().to_list())
+        st.write("**LOAD LOSS**", df['LOAD LOSS'].head().to_list())
         st.write("Data type:", df['LOAD LOSS'].dtype)
-        st.write("Any non-numeric values after cleaning:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float)) and pd.notna(x)).sum())
-        st.write("**FAULT/OPERATION Column**", df['FAULT/OPERATION'].head().to_list())
-        st.write("Data type:", df['FAULT/OPERATION'].dtype)
-        st.write("**PHASE AFFECTED Column**", df['PHASE AFFECTED'].head().to_list())
-        st.write("**11kV FEEDER Column**", df['11kV FEEDER'].head().to_list())
-        st.write("**BUSINESS UNIT Column**", df['BUSINESS UNIT'].head().to_list())
+        st.write("Non-numeric values:", df['LOAD LOSS'].apply(lambda x: not isinstance(x, (int, float)) and pd.notna(x)).sum())
+        st.write("**FAULT/OPERATION**", df['FAULT/OPERATION'].head().to_list())
+        st.write("**PHASE AFFECTED**", df['PHASE AFFECTED'].head().to_list())
+        st.write("**11kV FEEDER**", df['11kV FEEDER'].head().to_list())
+        st.write("**BUSINESS UNIT**", df['BUSINESS UNIT'].head().to_list())
         if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
-            st.write("**RESPONSIBLE UNDERTAKINGS Column**", df['RESPONSIBLE UNDERTAKINGS'].head().to_list())
+            st.write("**RESPONSIBLE UNDERTAKINGS**", df['RESPONSIBLE UNDERTAKINGS'].head().to_list())
         if 'FINDINGS/ACTION TAKEN' in df.columns:
-            st.write("**FINDINGS/ACTION TAKEN Column**", df['FINDINGS/ACTION TAKEN'].head().to_list())
+            st.write("**FINDINGS/ACTION TAKEN**", df['FINDINGS/ACTION TAKEN'].head().to_list())
 
     df['LOAD LOSS'] = pd.to_numeric(df['LOAD LOSS'], errors='coerce')
 
@@ -125,9 +124,9 @@ if uploaded_file is not None:
     df['VOLTAGE_V'] = df['11kV FEEDER'].apply(extract_voltage)
 
     if df['LOAD LOSS'].isna().sum() > 0:
-        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS (current) after cleaning.")
+        st.warning(f"Found {df['LOAD LOSS'].isna().sum()} non-numeric or missing values in LOAD LOSS.")
     if df['VOLTAGE_V'].isna().sum() > 0:
-        st.warning(f"Found {df['VOLTAGE_V'].isna().sum()} invalid voltage values derived from 11kV FEEDER.")
+        st.warning(f"Found {df['VOLTAGE_V'].isna().sum()} invalid voltage values.")
     if df['CLEARANCE_TIME_HOURS'].isna().sum() > 0:
         st.warning(f"Found {df['CLEARANCE_TIME_HOURS'].isna().sum()} invalid clearance times.")
     if df['BUSINESS UNIT'].isna().sum() > 0:
@@ -254,7 +253,7 @@ if uploaded_file is not None:
             undertaking_filter = st.multiselect("Select Responsible Undertakings", undertaking_options, default=undertaking_options)
         else:
             undertaking_filter = []
-            st.write("Responsible Undertakings filter disabled (column not found).")
+            st.write("Responsible Undertakings filter disabled.")
     with col3:
         feeder_filter = st.selectbox("Select Feeder", ['All'] + sorted(df['11kV FEEDER'].unique().astype(str).tolist()))
     with col4:
@@ -276,7 +275,7 @@ if uploaded_file is not None:
         filtered_df = filtered_df[filtered_df['MONTH'] == month_filter]
 
     if filtered_df.empty:
-        st.warning("No data matches the selected filters. Try different options.")
+        st.warning("No data matches the selected filters.")
         st.stop()
 
     fault_counts_filtered = filtered_df['FAULT_TYPE'].value_counts().reset_index()
@@ -345,7 +344,7 @@ if uploaded_file is not None:
 
     st.subheader("Daily Fault Trend")
     daily_faults = filtered_df.groupby(filtered_df['DATE REPORTED'].dt.date).size().reset_index(name='Fault Count')
-    daily_faults.columns = ['Date', 'Fault Count']
+    daily_faults['Date'] = pd.to_datetime(daily_faults['Date'])
     fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend")
     selected_date = plotly_events(fig_trend, key="trend_click", click_event=True)
     st.plotly_chart(fig_trend, use_container_width=True)
@@ -411,15 +410,15 @@ if uploaded_file is not None:
     st.dataframe(filtered_df[cols_to_show].sort_values('PRIORITY_SCORE', ascending=False).head(10))
 
     st.subheader("Additional Insights")
-    st.write("1. **Fault Clearance Time Distribution (0-48 Hours)**: Distribution of clearance times up to 48 hours.")
+    st.write("1. **Fault Clearance Time Distribution (0-48 Hours)**")
     filtered_clearance = filtered_df[(filtered_df['CLEARANCE_TIME_HOURS'] >= 0) & (filtered_df['CLEARANCE_TIME_HOURS'] <= 48)]
     fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)")
     st.plotly_chart(fig_clearance, use_container_width=True)
 
-    st.write("2. **Clearance Time Outliers (>48 Hours)**: Faults taking more than 48 hours to clear, with findings.")
+    st.write("2. **Clearance Time Outliers (>48 Hours)**")
     st.dataframe(clearance_outliers_filtered)
 
-    st.write("3. **Phase-Specific Faults**: Fault counts by affected phase.")
+    st.write("3. **Phase-Specific Faults**")
     fig_phase = px.bar(phase_faults_filtered, x='Phase Affected', y='Fault Count', title="Faults by Phase Affected")
     selected_phase = plotly_events(fig_phase, key="phase_click", click_event=True)
     st.plotly_chart(fig_phase, use_container_width=True)
