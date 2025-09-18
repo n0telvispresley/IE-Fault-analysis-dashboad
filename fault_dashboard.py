@@ -4,7 +4,6 @@ import plotly.express as px
 import streamlit.components.v1 as components
 from datetime import datetime
 import re
-from streamlit_plotly_events import plotly_events
 
 # Inject JavaScript to handle module fetch errors
 components.html(
@@ -363,13 +362,6 @@ if uploaded_file is not None:
     clearance_outliers_filtered = filtered_df[filtered_df['CLEARANCE_TIME_HOURS'] > 48][outlier_columns_filtered]
     clearance_outliers_filtered['CLEARANCE_TIME_HOURS'] = clearance_outliers_filtered['CLEARANCE_TIME_HOURS'].round(2)
 
-    # Define detail columns for pop-up tables
-    detail_cols = ['DATE REPORTED', '11kV FEEDER', 'FAULT/OPERATION', 'FAULT_TYPE', 'DOWNTIME_HOURS', 'CLEARANCE_TIME_HOURS', 'ENERGY_LOSS_MWH']
-    if 'RESPONSIBLE UNDERTAKINGS' in df.columns:
-        detail_cols.insert(2, 'RESPONSIBLE UNDERTAKINGS')
-    if 'FINDINGS/ACTION TAKEN' in df.columns:
-        detail_cols.append('FINDINGS/ACTION TAKEN')
-
     # Dashboard layout
     st.subheader("Key Metrics")
     col1, col2, col3 = st.columns(3)
@@ -390,32 +382,14 @@ if uploaded_file is not None:
         st.warning(f"Critical: {len(frequent_trippers_filtered)} feeders tripped more than twice. Review frequent trippers table.")
 
     st.subheader("Fault Classification")
-    fig_faults = px.bar(fault_counts_filtered, x='Fault Type', y='Count', title="Fault Types Distribution", template="plotly_dark")
-    selected_fault = plotly_events(fig_faults, key="fault_click", click_event=True)
+    fig_faults = px.bar(fault_counts_filtered, x='Fault Type', y='Count', title="Fault Types Distribution")
     st.plotly_chart(fig_faults, use_container_width=True)
-    if selected_fault:
-        fault_type = selected_fault[0]['x']
-        with st.expander(f"Details for Fault Type: {fault_type}"):
-            filtered_details = filtered_df[filtered_df['FAULT_TYPE'] == fault_type][detail_cols].copy()
-            filtered_details['DOWNTIME_HOURS'] = filtered_details['DOWNTIME_HOURS'].round(2)
-            filtered_details['CLEARANCE_TIME_HOURS'] = filtered_details['CLEARANCE_TIME_HOURS'].round(2)
-            filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
-            st.dataframe(filtered_details)
 
     st.subheader("Daily Fault Trend")
     daily_faults = filtered_df.groupby(filtered_df['DATE REPORTED'].dt.date)['FAULT_TYPE'].count().reset_index()
     daily_faults.columns = ['Date', 'Fault Count']
-    fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend", template="plotly_dark")
-    selected_date = plotly_events(fig_trend, key="trend_click", click_event=True)
+    fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend")
     st.plotly_chart(fig_trend, use_container_width=True)
-    if selected_date:
-        date_str = selected_date[0]['x']
-        with st.expander(f"Details for Date: {date_str}"):
-            filtered_details = filtered_df[filtered_df['DATE REPORTED'].dt.date == pd.to_datetime(date_str).date()][detail_cols].copy()
-            filtered_details['DOWNTIME_HOURS'] = filtered_details['DOWNTIME_HOURS'].round(2)
-            filtered_details['CLEARANCE_TIME_HOURS'] = filtered_details['CLEARANCE_TIME_HOURS'].round(2)
-            filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
-            st.dataframe(filtered_details)
 
     st.subheader("Average Downtime by Feeder")
     if feeder_downtime_filtered.empty:
@@ -445,20 +419,9 @@ if uploaded_file is not None:
             y='DOWNTIME_HOURS',
             color='RATING',
             title="Average Downtime by Feeder",
-            color_discrete_map=rating_colors,
-            template="plotly_dark"
+            color_discrete_map=rating_colors
         )
-        selected_feeder = plotly_events(fig_downtime, key="downtime_click", click_event=True)
         st.plotly_chart(fig_downtime, use_container_width=True)
-        if selected_feeder:
-            short_name = selected_feeder[0]['x']
-            full_feeder = chart_data[chart_data['SHORT_FEEDER_NAME'] == short_name]['11kV FEEDER'].iloc[0]
-            with st.expander(f"Details for Feeder: {short_name} ({full_feeder})"):
-                filtered_details = filtered_df[filtered_df['11kV FEEDER'] == full_feeder][detail_cols].copy()
-                filtered_details['DOWNTIME_HOURS'] = filtered_details['DOWNTIME_HOURS'].round(2)
-                filtered_details['CLEARANCE_TIME_HOURS'] = filtered_details['CLEARANCE_TIME_HOURS'].round(2)
-                filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
-                st.dataframe(filtered_details)
 
     st.subheader("Frequent Tripping Feeders (>2 Trips)")
     st.dataframe(frequent_trippers_filtered)
@@ -478,24 +441,15 @@ if uploaded_file is not None:
     st.subheader("Additional Insights")
     st.write("1. **Fault Clearance Time Distribution (0-48 Hours)**: Distribution of clearance times up to 48 hours.")
     filtered_clearance = filtered_df[(filtered_df['CLEARANCE_TIME_HOURS'] >= 0) & (filtered_df['CLEARANCE_TIME_HOURS'] <= 48)]
-    fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)", template="plotly_dark")
+    fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)")
     st.plotly_chart(fig_clearance, use_container_width=True)
 
     st.write("2. **Clearance Time Outliers (>48 Hours)**: Faults taking more than 48 hours to clear, with findings.")
     st.dataframe(clearance_outliers_filtered)
 
     st.write("3. **Phase-Specific Faults**: Fault counts by affected phase.")
-    fig_phase = px.bar(phase_faults_filtered, x='Phase Affected', y='Fault Count', title="Faults by Phase Affected", template="plotly_dark")
-    selected_phase = plotly_events(fig_phase, key="phase_click", click_event=True)
+    fig_phase = px.bar(phase_faults_filtered, x='Phase Affected', y='Fault Count', title="Faults by Phase Affected")
     st.plotly_chart(fig_phase, use_container_width=True)
-    if selected_phase:
-        phase = selected_phase[0]['x']
-        with st.expander(f"Details for Phase Affected: {phase}"):
-            filtered_details = filtered_df[filtered_df['PHASE_AFFECTED_LIST'].apply(lambda x: phase in x)][detail_cols].copy()
-            filtered_details['DOWNTIME_HOURS'] = filtered_details['DOWNTIME_HOURS'].round(2)
-            filtered_details['CLEARANCE_TIME_HOURS'] = filtered_details['CLEARANCE_TIME_HOURS'].round(2)
-            filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
-            st.dataframe(filtered_details)
 
     # Export report as CSV
     st.subheader("Download Report")
