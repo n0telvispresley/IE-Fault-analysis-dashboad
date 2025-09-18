@@ -516,4 +516,3 @@ if uploaded_file is not None:
 
 else:
     st.warning("Please upload an Excel file to proceed.")
-    
