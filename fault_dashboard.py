@@ -343,6 +343,7 @@ if uploaded_file is not None:
 
     st.subheader("Daily Fault Trend")
     daily_faults = filtered_df.groupby(filtered_df['DATE REPORTED'].dt.date).size().reset_index(name='Fault Count')
+    daily_faults.columns = ['Date', 'Fault Count']
     daily_faults['Date'] = pd.to_datetime(daily_faults['Date'])
     fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend")
     selected_date = plotly_events(fig_trend, key="trend_click", click_event=True)
