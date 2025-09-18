@@ -328,8 +328,9 @@ if uploaded_file is not None:
     if not frequent_trippers_filtered.empty:
         st.warning(f"Critical: {len(frequent_trippers_filtered)} feeders tripped more than twice.")
 
+    # Plotting: Fault Classification
     st.subheader("Fault Classification")
-    fig_faults = px.bar(fault_counts_filtered, x='Fault Type', y='Count', title="Fault Types Distribution")
+    fig_faults = px.bar(fault_counts_filtered, x='Fault Type', y='Count', title="Fault Types Distribution", template="plotly_dark")
     selected_fault = plotly_events(fig_faults, key="fault_click", click_event=True)
     st.plotly_chart(fig_faults, use_container_width=True)
     if selected_fault:
@@ -341,11 +342,12 @@ if uploaded_file is not None:
             filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
             st.dataframe(filtered_details)
 
+    # Plotting: Daily Fault Trend (only one line chart)
     st.subheader("Daily Fault Trend")
     daily_faults = filtered_df.groupby(filtered_df['DATE REPORTED'].dt.date).size().reset_index(name='Fault Count')
     daily_faults.columns = ['Date', 'Fault Count']
     daily_faults['Date'] = pd.to_datetime(daily_faults['Date'])
-    fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend")
+    fig_trend = px.line(daily_faults, x='Date', y='Fault Count', title="Daily Fault Trend", template="plotly_dark")
     selected_date = plotly_events(fig_trend, key="trend_click", click_event=True)
     st.plotly_chart(fig_trend, use_container_width=True)
     if selected_date:
@@ -357,6 +359,7 @@ if uploaded_file is not None:
             filtered_details['ENERGY_LOSS_MWH'] = filtered_details['ENERGY_LOSS_MWH'].round(2)
             st.dataframe(filtered_details)
 
+    # Plotting: Average Downtime by Feeder
     st.subheader("Average Downtime by Feeder")
     if feeder_downtime_filtered.empty:
         st.warning("No feeder data available for the selected filters.")
@@ -379,7 +382,8 @@ if uploaded_file is not None:
             y='DOWNTIME_HOURS',
             color='RATING',
             title="Average Downtime by Feeder",
-            color_discrete_map=rating_colors
+            color_discrete_map=rating_colors,
+            template="plotly_dark"
         )
         selected_feeder = plotly_events(fig_downtime, key="downtime_click", click_event=True)
         st.plotly_chart(fig_downtime, use_container_width=True)
@@ -409,16 +413,18 @@ if uploaded_file is not None:
     st.dataframe(filtered_df[cols_to_show].sort_values('PRIORITY_SCORE', ascending=False).head(10))
 
     st.subheader("Additional Insights")
+    # Plotting: Fault Clearance Time Distribution
     st.write("1. **Fault Clearance Time Distribution (0-48 Hours)**")
     filtered_clearance = filtered_df[(filtered_df['CLEARANCE_TIME_HOURS'] >= 0) & (filtered_df['CLEARANCE_TIME_HOURS'] <= 48)]
-    fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)")
+    fig_clearance = px.histogram(filtered_clearance, x='CLEARANCE_TIME_HOURS', nbins=24, title="Fault Clearance Time Distribution (0-48 Hours)", template="plotly_dark")
     st.plotly_chart(fig_clearance, use_container_width=True)
 
     st.write("2. **Clearance Time Outliers (>48 Hours)**")
     st.dataframe(clearance_outliers_filtered)
 
+    # Plotting: Phase-Specific Faults
     st.write("3. **Phase-Specific Faults**")
-    fig_phase = px.bar(phase_faults_filtered, x='Phase Affected', y='Fault Count', title="Faults by Phase Affected")
+    fig_phase = px.bar(phase_faults_filtered, x='Phase Affected', y='Fault Count', title="Faults by Phase Affected", template="plotly_dark")
     selected_phase = plotly_events(fig_phase, key="phase_click", click_event=True)
     st.plotly_chart(fig_phase, use_container_width=True)
     if selected_phase:
